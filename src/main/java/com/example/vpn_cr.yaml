@@ -1,0 +1,13 @@
+apiVersion: network.tmaxanc.com/v1
+kind: VPN
+metadata:
+  name: vpn-test
+  namespace: spring
+spec:
+  connections:
+  - name: cluster1-cluster2
+    left: 172.22.8.113
+    leftsubnet: 10.25.0.0/16
+    right: 192.168.7.58
+    rightsubnet: 20.11.0.0/16
+    psk: bjmin
