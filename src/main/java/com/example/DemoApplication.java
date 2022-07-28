@@ -19,11 +19,20 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.kubernetes.client.dsl.base.ResourceDefinitionContext;
+import java.io.UnsupportedEncodingException;
+import java.util.Base64;
+import java.util.Base64.Decoder;
+import java.util.Base64.Encoder;
 
 import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.io.IOException;
+
 
 
 @RestController
@@ -36,7 +45,8 @@ public class DemoApplication {
     void test() {
     	try (KubernetesClient k8s = new KubernetesClientBuilder().build()) {
             // Print names of all pods in specified namespace
-            k8s.pods().inNamespace("default").list()
+    		System.setProperty("kubernetes.auth.tryKubeConfig", "true");
+           k8s.pods().inNamespace("default").list()
               .getItems()
               .stream()
               .map(Pod::getMetadata)
@@ -48,6 +58,7 @@ public class DemoApplication {
 
     @RequestMapping("/serviceaccount") //serviceAccount1을 만들어 주는 api
     void createServiceAccount() {
+    	System.setProperty("kubernetes.auth.tryKubeConfig", "true");
     	ServiceAccount serviceAccount1 = new ServiceAccountBuilder()
     			  .withNewMetadata().withName("springservice1").endMetadata()
     			  .withAutomountServiceAccountToken(false)
@@ -68,30 +79,85 @@ public class DemoApplication {
     }
     
    
-    String getTokenString(KubernetesClient k8s, String tokenName) {
-    	Secret secret = k8s.secrets().inNamespace("spring").withName(tokenName).get();
-    	String token = secret.getData().get("ca.crt");
+    String getTokenString(KubernetesClient k8s, String tokenName) throws UnsupportedEncodingException {
+    	//Secret secret = k8s.secrets().inNamespace("spring").withName(tokenName).get();
+    	Secret secret = k8s.secrets().withName(tokenName).get();
+    	String encodeToken = secret.getData().get("token");
+    	Decoder decoder = Base64.getDecoder();
+    	byte[] decodedBytes2 = decoder.decode(encodeToken);
+    	String token = new String(decodedBytes2, "UTF-8");
     	return token;
+    }
+    
+    String getCaCrt(KubernetesClient k8s, String tokenName) throws UnsupportedEncodingException {
+    	//Secret secret = k8s.secrets().inNamespace("spring").withName(tokenName).get();
+    	Secret secret = k8s.secrets().withName(tokenName).get();
+    	String encodeCrt = secret.getData().get("ca.crt");
+    	Decoder decoder = Base64.getDecoder();
+    	byte[] decodedBytes2 = decoder.decode(encodeCrt);
+    	String crt = new String(decodedBytes2, "UTF-8");
+    	return crt;
+    }
+    
+    String getNamespace(KubernetesClient k8s, String tokenName)  throws UnsupportedEncodingException {
+    	//Secret secret = k8s.secrets().inNamespace("spring").withName(tokenName).get();
+    	Secret secret = k8s.secrets().withName(tokenName).get();
+    	String encodeNamespace = secret.getData().get("namespace");
+    	Decoder decoder = Base64.getDecoder();
+    	byte[] decodedBytes2 = decoder.decode(encodeNamespace);
+    	String namespace = new String(decodedBytes2, "UTF-8");
+    	return namespace;
     }
     
     
     @RequestMapping("/setvpn") //vpn_cr.yaml 만들어주는 api
     void setVPN() {
+    	KubernetesClient k8s = new KubernetesClientBuilder().build();
     	String token;
-    	try (final KubernetesClient k8s = new KubernetesClientBuilder().build()) {
-        	String tokenName = this.getTokenName(k8s,"springservice1");
-        	token = this.getTokenString(k8s, tokenName);
+    	String crt;
+    	String namespace;
+    	String tokenName = this.getTokenName(k8s,"springservice1");
+    	
+    	try{
+    		token = this.getTokenString(k8s, tokenName);
+    		Path path = Paths.get("./token");
+    		Files.write(path, token.getBytes());
+    	} 
+    	catch(UnsupportedEncodingException e) {
     	}
+    	catch(IOException e) {
+    		e.printStackTrace();
+    	};
+    	
+    	try{
+    		crt = this.getCaCrt(k8s, tokenName);
+    		Path path = Paths.get("./ca.crt");
+    		Files.write(path, crt.getBytes());
+    	} catch(UnsupportedEncodingException e) {
+    	}
+    	catch(IOException e) {
+    		e.printStackTrace();
+    	};
+    	
+    	try{
+    		namespace = this.getNamespace(k8s, tokenName);
+    		Path path = Paths.get("./namespace");
+    		Files.write(path, namespace.getBytes());
+    	} catch(UnsupportedEncodingException e) {
+    	}
+    	catch (IOException e) {
+    		e.printStackTrace();
+    	};
     	
     	//System.setProperty("kubernetes.disable.autoConfig", "false");
+    	System.setProperty("kubernetes.master", "https://192.168.56.10:6443");
     	System.setProperty("kubernetes.auth.tryKubeConfig", "false");
-    	//System.setProperty("kubernetes.auth.tryServiceAccount", "true");
-    	//System.setProperty("kubernetes.auth.token", token);
-    	ConfigBuilder configBuilder = new ConfigBuilder().withMasterUrl("https://192.168.56.10:6443")
-    			.withOauthToken(token);
+    	System.setProperty("kubernetes.auth.serviceAccount.token", "./token");
+    	System.setProperty("kubernetes.certs.ca.file", "./ca.crt");
+    	System.setProperty("kubenamespace", "./namespace");
+    	ConfigBuilder configBuilder = new ConfigBuilder().withMasterUrl("https://192.168.56.10:6443");
     	Config config = configBuilder.build();
-    	
-    	
+
     	try (KubernetesClient springUser = new KubernetesClientBuilder().withConfig(config).build()) {
     		ResourceDefinitionContext context = new ResourceDefinitionContext
     	        .Builder()
@@ -109,6 +175,7 @@ public class DemoApplication {
     
     
     public static void main(String[] args) {
+    	   	
       SpringApplication.run(DemoApplication.class, args);
     }
 }
